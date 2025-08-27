@@ -4,6 +4,21 @@
 export type OAuth2AccessTokenType = "Bearer" | "MAC" | string;
 
 /**
+ * @see https://www.rfc-editor.org/rfc/rfc6749.html#section-2.3.1
+ */
+export type OAuth2Authentication = {
+  /**
+   * The client identifier issued to the client during the registration process described by [Client Indentifier](https://www.rfc-editor.org/rfc/rfc6749.html#section-2.2).
+   */
+  client_id: string;
+  /**
+   * The client secret.
+   * The client MAY omit the parameter if the client secret is an empty string.
+   */
+  client_secret: string;
+};
+
+/**
  * @see https://www.rfc-editor.org/rfc/rfc6749.html#section-4.1.3
  */
 export type OAuth2AccessTokenRequest = {
@@ -20,6 +35,10 @@ export type OAuth2AccessTokenRequest = {
    */
   client_id?: string;
 };
+
+export type OAuth2AccessTokenRequestWithAuth = OAuth2Authentication & OAuth2AccessTokenRequest;
+
+// export type OAuth2AccessTokenRequest = (OAuth2Authentication & OAuth2AccessTokenRequestPure) | OAuth2AccessTokenRequestPure;
 
 /**
  * @see https://www.rfc-editor.org/rfc/rfc6749.html#section-5.1

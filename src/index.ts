@@ -9,6 +9,7 @@ import type {
   FeiShuAccessTokenResponse,
   FeiShuUserInfo,
   FeiShuUserInfoResponse,
+  FeiShuAccessTokenErrorResponse,
 } from '@/types/feishu';
 import type {
   OpenIDAuthRequestParams,
@@ -17,7 +18,9 @@ import type {
   OpenIDUserInfoSuccessResponse,
 } from '@/types/oidc';
 import type {
-  OAuth2AccessTokenRequest
+  OAuth2AccessTokenErrorResponse,
+  OAuth2AccessTokenRequest,
+  OAuth2AccessTokenRequestWithAuth,
 } from './types/oauth2';
 
 // JWT生成和验证函数
@@ -37,7 +40,7 @@ async function generateIdToken(userInfo: FeiShuUserInfo, clientId: string, nonce
     // 标准声明
     name: userInfo.name,
     email: userInfo.email,
-    picture: userInfo.avatar_url
+    picture: userInfo.avatar_url,
   };
 
   // 使用env中的私钥签名JWT
@@ -83,67 +86,99 @@ export default {
 
     // auth端点：重定向到飞书登录
     if (url.pathname === '/auth') {
+      const inputParams = url.searchParams as {
+        get<TKey extends keyof OpenIDAuthRequestParams>(key: TKey): OpenIDAuthRequestParams[TKey];
+      };
       const searchParams = new URLSearchParams({
-        client_id: env.FEISHU_APP_ID,
-        redirect_uri: `${env.ISSUER_BASE_URL}/callback`,
+        scope: inputParams.get('scope'),
+        client_id: inputParams.get('client_id'),
+        // redirect_uri: `${env.ISSUER_BASE_URL}/callback`, // TODO: 是不是根本就不用处理callback呀？
+        redirect_uri: inputParams.get('redirect_uri'),
       } satisfies FeiShuAuthRequestParams)
-      const state = url.searchParams.get('state') as OpenIDAuthRequestParams['state']
+      const state = inputParams.get('state');
       if (state)
         searchParams.set('state', state);
+      // TODO: handle nonce.
       const feishuAuthUrl = new URL(FeiShuEndpoints.OAuth2Auth);
       feishuAuthUrl.search = '?' + searchParams.toString();
       return Response.redirect(feishuAuthUrl.toString());
     }
 
-    // callback端点：接收飞书的code并转发给客户端
-    if (url.pathname === '/callback') {
-      // TODO: 是不是把整个search替换过去？或者foreach append过去
-      const code = url.searchParams.get('code')!;  // 这是飞书生成的code
-      const state = url.searchParams.get('state')!;
+    // // callback端点：接收飞书的code并转发给客户端
+    // if (url.pathname === '/callback') {
+    //   // TODO: 是不是把整个search替换过去？或者foreach append过去
+    //   const code = url.searchParams.get('code')!;  // 这是飞书生成的code
+    //   const state = url.searchParams.get('state')!;
 
-      // 把飞书的code转发给客户端
-      const redirectUrl = new URL(url.searchParams.get('redirect_uri')!);
-      redirectUrl.searchParams.set('code', code);
-      redirectUrl.searchParams.set('state', state);
+    //   // 把飞书的code转发给客户端
+    //   const redirectUrl = new URL(url.searchParams.get('redirect_uri')!);
+    //   redirectUrl.searchParams.set('code', code);
+    //   redirectUrl.searchParams.set('state', state);
 
-      return Response.redirect(redirectUrl.toString());
-    }
+    //   return Response.redirect(redirectUrl.toString());
+    // }
 
     // token端点
     // 用飞书的code换取token，并生成OIDC所需的token
     if (url.pathname === '/token' && request.method === 'POST') {
       const formData = await request.formData() as {
         get<TKey extends keyof OAuth2AccessTokenRequest>(key: TKey): OAuth2AccessTokenRequest[TKey];
+        get<TKey extends keyof OAuth2AccessTokenRequestWithAuth>(key: TKey): OAuth2AccessTokenRequestWithAuth[TKey];
+        has(key: keyof OAuth2AccessTokenRequestWithAuth): boolean;
+        has(key: string): false;
       };
+      let clientId: string | undefined = undefined;
+      let clientSecret: string | undefined = undefined;
+      if (request.headers.get('Authorization')) {
+        const authHeader = request.headers.get('Authorization')!;
+        const [scheme, token] = authHeader.split(' ');
+        if (scheme === 'Basic') {
+          const decoded = atob(token);
+          [clientId, clientSecret] = decoded.split(':');
+        }
+      }
+      if (formData.has('client_id')) {
+        clientId = formData.get('client_id');
+      }
+      if (formData.has('client_secret')) {
+        clientSecret = formData.get('client_secret');
+      }
+      if (!clientId || !clientSecret) {
+        return new Response('Missing client authentication', { status: 401 });
+      }
+
       const code = formData.get('code');  // 这是从客户端收到的飞书code
-      const clientId = formData.get('client_id')!;
-      const nonce = formData.get('nonce') as string | null | undefined; // 这个地方不对
+      // const nonce = formData.get('nonce') as string | null | undefined; // 这个地方不对
 
-      // 1. 先获取飞书的app_access_token
-      // Unknown step
-      const appTokenResponse = await fetch('https://open.feishu.cn/open-apis/auth/v3/app_access_token/internal', {
+      const feiShuTokenResponse = await fetch(FeiShuEndpoints.OAuth2Token, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          app_id: env.FEISHU_APP_ID,
-          app_secret: env.FEISHU_APP_SECRET,
-        })
-      });
-      const { app_access_token } = await appTokenResponse.json() as { app_access_token: string };
-
-      // 2. 用飞书的code换取用户access_token
-      const userTokenResponse = await fetch('https://open.feishu.cn/open-apis/authen/v1/access_token', { // Invalid URL
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${app_access_token}`,
-          'Content-Type': 'application/json'
-        },
+        headers: { "Content-Type": 'application/json' },
         body: JSON.stringify({
           grant_type: 'authorization_code',
-          code  // 用飞书的code换token
-        })
-      });
-      const { access_token } = await userTokenResponse.json() as { access_token: string };
+          code,
+          client_id: clientId,
+          client_secret: clientSecret,
+          redirect_uri: formData.get('redirect_uri'),
+        } satisfies FeiShuAccessTokenRequest)
+      })
+
+      const feiShuTokenData = await feiShuTokenResponse.json() as FeiShuAccessTokenResponse;
+      if (feiShuTokenData.code !== 0) {
+        return new Response(JSON.stringify({
+          error: 'invalid_request',
+          error_description: (feiShuTokenData as FeiShuAccessTokenErrorResponse).error_description,
+        } satisfies OAuth2AccessTokenErrorResponse));
+      }
+
+      const {
+        access_token,
+        expires_in,
+        refresh_token,
+        refresh_token_expires_in,
+        scope,
+      } = feiShuTokenData as Extract<FeiShuAccessTokenResponse, { code: 0, refresh_token: string }>;
+      // Assume refresh_token exists here, though it may not.
+      // This is safe because no member of refresh_token will be called.
 
       // 3. 用access_token获取用户信息
       const userInfoResponse = await fetch(FeiShuEndpoints.UserInfo, {
@@ -157,13 +192,15 @@ export default {
       return new Response(JSON.stringify({
         access_token: access_token,        // 使用飞书的access_token
         token_type: 'Bearer',
+        refresh_token,
         id_token: await generateIdToken(   // 我们生成的JWT格式的id_token
           userInfo.data,
           clientId,
-          nonce, // TODO: nonce应该是auth阶段发过来的
-          env
+          null, // TODO: nonce应该是auth阶段发过来的
+          env,
         ),
-        expires_in: 3600
+        expires_in,
+        scope: transformScope(scope),
       } satisfies OpenIDSuccessTokenResponse), {
         headers: { 'Content-Type': 'application/json' }
       });
@@ -196,3 +233,21 @@ export default {
     return new Response('Not Found', { status: 404 });
   }
 } satisfies ExportedHandler<Env>;
+
+function transformScope(feishuScope: string): string {
+  // 将飞书的scope转换为OIDC的scope
+  const scopeMap: Record<string, string> = {
+    "contact:user.email:readonly": 'email',
+    "contact:user.id:readonly": 'sub',
+    "directory:employee.base.email:read": 'email',
+    "directory:employee.base.enterprise_email:read": 'email',
+    "contact:user.base:readonly": 'sub profile',
+    "contact:user.employee_id:readonly": 'sub',
+  };
+
+  return [
+    ...new Set(
+      feishuScope.split(' ').map(scope => scopeMap[scope] || scope).join(' ').split(' ')
+    ).add('openid')
+  ].join(' ');
+}

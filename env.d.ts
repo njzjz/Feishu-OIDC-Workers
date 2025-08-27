@@ -9,6 +9,4 @@ interface Env extends Cloudflare.Env {
   JWT_PRIVATE_KEY: string;
   JWT_PUBLIC_KEY_JWK: string;
   JWT_KEY_ID: string;
-  FEISHU_APP_ID: string;
-  FEISHU_APP_SECRET: string;
 }

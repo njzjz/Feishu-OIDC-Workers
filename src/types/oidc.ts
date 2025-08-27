@@ -18,7 +18,7 @@ import type {
  *  }
  * ```
  */
-export type OpenIDToken = {
+type OpenIDTokenStandard = {
   /**
    * Issuer Identifier for the Issuer of the response.
    * The `iss` value is a case-sensitive URL using the `https` scheme that contains scheme, host, and optionally, port number and path components and no query or fragment components.
@@ -97,6 +97,8 @@ export type OpenIDToken = {
    */
   azp?: string;
 };
+
+export type OpenIDToken = OpenIDTokenStandard & Partial<OpenIDStandardClaims>;
 
 /**
  * @see https://openid.net/specs/openid-connect-core-1_0.html#AuthRequest

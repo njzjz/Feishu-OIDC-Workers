@@ -183,7 +183,7 @@ type FeiShuAccessTokenSuccessResponseWithRefreshToken = FeiShuAccessTokenSuccess
   refresh_token_expires_in: number;
 };
 
-type FeiShuAccessTokenErrorResponse = {
+export type FeiShuAccessTokenErrorResponse = {
   /** 错误码，为 0 时表明请求成功，非 0 表示失败 */
   code: number;
   /** 错误类型 */
