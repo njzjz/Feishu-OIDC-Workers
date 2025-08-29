@@ -10,9 +10,13 @@ import type {
   FeiShuUserInfo,
   FeiShuUserInfoResponse,
   FeiShuAccessTokenErrorResponse,
+  FeiShuAuthResponse,
 } from '@/types/feishu';
 import type {
+  OpenIDAuthErrorResponse,
   OpenIDAuthRequestParams,
+  OpenIDProviderMetadata,
+  OpenIDStandardClaims,
   OpenIDSuccessTokenResponse,
   OpenIDToken,
   OpenIDUserInfoSuccessResponse,
@@ -22,6 +26,9 @@ import type {
   OAuth2AccessTokenRequest,
   OAuth2AccessTokenRequestWithAuth,
 } from './types/oauth2';
+
+const STATE_PREFIX = '638DG14L72WO-';
+const URI_PARAM_PREFIX = 'y4y1ie0cvb2r-';
 
 // JWT生成和验证函数
 async function generateIdToken(userInfo: FeiShuUserInfo, clientId: string, nonce: string | null | undefined, env: Env) {
@@ -34,7 +41,6 @@ async function generateIdToken(userInfo: FeiShuUserInfo, clientId: string, nonce
     aud: clientId,
     exp: now + 3600,  // 1小时后过期
     iat: now,
-    // 如果请求中包含nonce，需要在ID Token中包含相同的值
     ...(nonce && { nonce }),
 
     // 标准声明
@@ -61,11 +67,11 @@ export default {
         token_endpoint: `${env.ISSUER_BASE_URL}/token`,
         userinfo_endpoint: `${env.ISSUER_BASE_URL}/userinfo`,
         jwks_uri: `${env.ISSUER_BASE_URL}/jwks`,
-        response_types_supported: ['code'],
+        response_types_supported: [ 'code', 'id_token', 'id_token token' ],
         subject_types_supported: ['public'],
         id_token_signing_alg_values_supported: ['RS256'],
         scopes_supported: ['openid', 'profile', 'email'],
-      }), {
+      } satisfies OpenIDProviderMetadata), {
         headers: { 'Content-Type': 'application/json' },
       });
     }
@@ -89,34 +95,70 @@ export default {
       const inputParams = url.searchParams as {
         get<TKey extends keyof OpenIDAuthRequestParams>(key: TKey): OpenIDAuthRequestParams[TKey];
       };
+
+      const nonce = inputParams.get('nonce');
+      const state = inputParams.get('state') || (env.STATE_PREFIX || STATE_PREFIX) + crypto.randomUUID();
+      const client_id = inputParams.get('client_id');
+      if (nonce) {
+        await env.StateNonceKV.put(state, nonce, {
+          expirationTtl: 900, // 15 minutes. In case the user takes long time on authentication page.
+        });
+      }
+
+      const redirectUrl = new URL(`${env.ISSUER_BASE_URL}/callback`);
+      redirectUrl.searchParams.set((env.URI_PARAM_PREFIX || URI_PARAM_PREFIX) + 'original-uri', inputParams.get('redirect_uri'));
+
+      const inputScope = inputParams.get('scope');
+      const scope = transformOpenIDScope(inputScope);
       const searchParams = new URLSearchParams({
-        scope: inputParams.get('scope'),
-        client_id: inputParams.get('client_id'),
-        // redirect_uri: `${env.ISSUER_BASE_URL}/callback`, // TODO: 是不是根本就不用处理callback呀？
-        redirect_uri: inputParams.get('redirect_uri'),
+        scope,
+        client_id,
+        redirect_uri: encodeURI(redirectUrl.toString()),
+        ...(state && { state }),
+        // redirect_uri: inputParams.get('redirect_uri'),
       } satisfies FeiShuAuthRequestParams)
-      const state = inputParams.get('state');
-      if (state)
-        searchParams.set('state', state);
-      // TODO: handle nonce.
+
       const feishuAuthUrl = new URL(FeiShuEndpoints.OAuth2Auth);
       feishuAuthUrl.search = '?' + searchParams.toString();
       return Response.redirect(feishuAuthUrl.toString());
     }
 
-    // // callback端点：接收飞书的code并转发给客户端
-    // if (url.pathname === '/callback') {
-    //   // TODO: 是不是把整个search替换过去？或者foreach append过去
-    //   const code = url.searchParams.get('code')!;  // 这是飞书生成的code
-    //   const state = url.searchParams.get('state')!;
+    // callback端点：接收飞书的code并转发给客户端
+    if (url.pathname === '/callback') {
+      // TODO: 是不是把整个search替换过去？或者foreach append过去
+      const searchParams = url.searchParams as {
+        get<TKey extends keyof FeiShuAuthResponse>(key: TKey): FeiShuAuthResponse[TKey];
+      };
+      const code = searchParams.get('code');
+      const state = searchParams.get('state')!;
 
-    //   // 把飞书的code转发给客户端
-    //   const redirectUrl = new URL(url.searchParams.get('redirect_uri')!);
-    //   redirectUrl.searchParams.set('code', code);
-    //   redirectUrl.searchParams.set('state', state);
+      const redirectUrl = new URL(url.searchParams.get((env.URI_PARAM_PREFIX || URI_PARAM_PREFIX) + 'original-uri')!);
 
-    //   return Response.redirect(redirectUrl.toString());
-    // }
+      const nonce = await env.StateNonceKV.get(state);
+      // if (!nonce) {
+      //   const searchParams = new URLSearchParams({
+      //     error: 'invalid_request',
+      //     error_description: 'Nonce missing',
+      //     state,
+      //   } satisfies OpenIDAuthErrorResponse);
+      //   redirectUrl.search = '?' + searchParams.toString();
+      //   return Response.redirect(redirectUrl.toString());
+      // }
+
+      if (nonce) {
+        await env.StateNonceKV.delete(state); // TODO: Do we need deletion?
+        await env.CodeNonceKV.put(code, nonce, {
+          expirationTtl: 300, // 5 minutes
+        });
+      }
+
+      redirectUrl.searchParams.set('code', code);
+      if (!state.startsWith(env.STATE_PREFIX || STATE_PREFIX)) {
+        redirectUrl.searchParams.set('state', state);
+      }
+
+      return Response.redirect(redirectUrl.toString());
+    }
 
     // token端点
     // 用飞书的code换取token，并生成OIDC所需的token
@@ -160,7 +202,7 @@ export default {
           client_secret: clientSecret,
           redirect_uri: formData.get('redirect_uri'),
         } satisfies FeiShuAccessTokenRequest)
-      })
+      });
 
       const feiShuTokenData = await feiShuTokenResponse.json() as FeiShuAccessTokenResponse;
       if (feiShuTokenData.code !== 0) {
@@ -183,10 +225,12 @@ export default {
       // 3. 用access_token获取用户信息
       const userInfoResponse = await fetch(FeiShuEndpoints.UserInfo, {
         headers: {
-          'Authorization': `Bearer ${access_token}`
-        }
+          'Authorization': `Bearer ${access_token}`,
+        },
       });
       const userInfo = await userInfoResponse.json() as FeiShuUserInfoResponse;
+
+      const nonce = await env.CodeNonceKV.get(code);
 
       // 4. 生成OIDC的响应
       return new Response(JSON.stringify({
@@ -196,11 +240,11 @@ export default {
         id_token: await generateIdToken(   // 我们生成的JWT格式的id_token
           userInfo.data,
           clientId,
-          null, // TODO: nonce应该是auth阶段发过来的
+          nonce,
           env,
         ),
         expires_in,
-        scope: transformScope(scope),
+        scope: transformFeiShuScope(scope),
       } satisfies OpenIDSuccessTokenResponse), {
         headers: { 'Content-Type': 'application/json' }
       });
@@ -209,7 +253,7 @@ export default {
     // userinfo端点 - 直接转发到飞书
     if (url.pathname === '/userinfo') {
       const response = await fetch(FeiShuEndpoints.UserInfo, {
-        headers: request.headers
+        headers: request.headers,
       });
 
       const userInfoFeiShu = await response.json() as FeiShuUserInfoResponse;
@@ -224,9 +268,9 @@ export default {
       return new Response(JSON.stringify({
         sub: userInfoFeiShu.data.user_id,
         name: userInfoFeiShu.data.name,
-        email: userInfoFeiShu.data.email
+        email: userInfoFeiShu.data.email,
       } satisfies OpenIDUserInfoSuccessResponse), {
-        headers: response.headers
+        headers: response.headers,
       });
     }
 
@@ -234,7 +278,7 @@ export default {
   }
 } satisfies ExportedHandler<Env>;
 
-function transformScope(feishuScope: string): string {
+function transformFeiShuScope(feishuScope: string): string {
   // 将飞书的scope转换为OIDC的scope
   const scopeMap: Record<string, string> = {
     "contact:user.email:readonly": 'email',
@@ -250,4 +294,20 @@ function transformScope(feishuScope: string): string {
       feishuScope.split(' ').map(scope => scopeMap[scope] || scope).join(' ').split(' ')
     ).add('openid')
   ].join(' ');
+}
+
+function transformOpenIDScope(openIDScope: string): string {
+  const scopeMap = new Map<keyof OpenIDStandardClaims, string>([
+    ["sub", 'contact:user.id:readonly contact:user.base:readonly contact:user.employee_id:readonly'],
+    ["email", 'contact:user.email:readonly directory:employee.base.email:read directory:employee.base.enterprise_email:read'],
+    ["profile", 'contact:user.base:readonly'],
+  ])
+
+  return [
+    ...new Set(
+      openIDScope
+        .split(' ').map(scope => scopeMap.get(scope as keyof OpenIDStandardClaims) || scope)
+        .join(' ').split(' ')
+    )
+  ].join(' ')
 }

@@ -1,10 +1,11 @@
 export const FeiShuEndpoints = {
+  /** GET {@link FeiShuAuthRequestParams} */
   OAuth2Auth: 'https://accounts.feishu.cn/open-apis/authen/v1/authorize' as const,
   /** POST {@link FeiShuAccessTokenRequest}: {@link FeiShuAccessTokenResponse} */
   OAuth2Token: 'https://open.feishu.cn/open-apis/authen/v2/oauth/token' as const,
   /** GET: {@link FeiShuUserInfoResponse} */
   UserInfo: 'https://open.feishu.cn/open-apis/authen/v1/user_info' as const,
-}
+};
 
 /**
  * ```http
@@ -75,7 +76,29 @@ export type FeiShuAuthRequestParams = {
    * 以上 `code_verifier` 是指在发起授权前，本地生成的随机字符串。
    */
   code_challenge_method?: string;
-}
+};
+
+/**
+ * ```http
+ * GET https://accounts.feishu.cn/open-apis/authen/v1/authorize HTTP/1.1
+ * ```
+ * @see https://open.feishu.cn/document/authentication-management/access-token/obtain-oauth-code
+ * @example
+ * "https://example.com/api/oauth/callback?code=2Wd5g337vo5BZXUz-3W5KECsWUmIzJ_FJ1eFD59fD1AJIibIZljTu3OLK-HP_UI1&state=RANDOMSTRING"
+ */
+export type FeiShuAuthResponse = {
+  /**
+   * 授权码，用于获取 `user_access_token`。
+   *
+   * **字符集**： [A-Z] / [a-z] / [0-9] / "-" / "_"
+   *
+   * **长度**： 请开发者至少预留 64 位字符
+   * @example "2Wd5g337vo5BZXUz-3W5KECsWUmIzJ_FJ1eFD59fD1AJIibIZljTu3OLK-HP_UI1"
+   */
+  code: string;
+  /** 打开授权页时传入的 `state` 参数的原值，如未传入此处不会返回。 */
+  state?: string;
+};
 
 /**
  * ```http
