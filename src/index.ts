@@ -28,7 +28,6 @@ import type {
 } from './types/oauth2';
 
 const STATE_PREFIX = '638DG14L72WO-';
-const URI_PARAM_PREFIX = 'y4y1ie0cvb2r-';
 
 // JWT生成和验证函数
 async function generateIdToken(userInfo: FeiShuUserInfo, clientId: string, nonce: string | null | undefined, env: Env) {
@@ -45,14 +44,14 @@ async function generateIdToken(userInfo: FeiShuUserInfo, clientId: string, nonce
 
     // 标准声明
     name: userInfo.name,
-    email: userInfo.email,
+    email: transformEmail(userInfo, env),
     picture: userInfo.avatar_url,
   };
 
   // 使用env中的私钥签名JWT
   return await new jose.SignJWT(payload)
     .setProtectedHeader({ alg: 'RS256', kid: env.JWT_KEY_ID })
-    .sign(await jose.importX509(env.JWT_PRIVATE_KEY_X509, 'RS256'));
+    .sign(await jose.importPKCS8(env.JWT_PRIVATE_KEY_X509, 'RS256'));
 }
 
 export default {
@@ -95,20 +94,19 @@ export default {
       const state = inputParams.get('state') || (env.STATE_PREFIX || STATE_PREFIX) + crypto.randomUUID();
       const client_id = inputParams.get('client_id');
       if (nonce) {
-        await env.StateNonceKV.put(state, nonce, {
+        await env.StateNonceKV.put(truncateState(state), nonce, {
           expirationTtl: 900, // 15 minutes. In case the user takes long time on authentication page.
         });
       }
 
-      const redirectUrl = new URL(`${env.ISSUER_BASE_URL}/callback`);
-      redirectUrl.searchParams.set((env.URI_PARAM_PREFIX || URI_PARAM_PREFIX) + 'original-uri', inputParams.get('redirect_uri'));
+      const redirectUrl = new URL(`${env.ISSUER_BASE_URL}/callback/${encodeURIComponent(inputParams.get('redirect_uri')!)}`);
 
       const inputScope = inputParams.get('scope');
       const scope = transformOpenIDScope(inputScope);
       const searchParams = new URLSearchParams({
         scope,
         client_id,
-        redirect_uri: encodeURI(redirectUrl.toString()),
+        redirect_uri: redirectUrl.toString(),
         ...(state && { state }),
         // redirect_uri: inputParams.get('redirect_uri'),
       } satisfies FeiShuAuthRequestParams)
@@ -119,17 +117,18 @@ export default {
     }
 
     // callback端点：接收飞书的code并转发给客户端
-    if (url.pathname === '/callback') {
-      // TODO: 是不是把整个search替换过去？或者foreach append过去
+    if (url.pathname.startsWith('/callback/')) {
       const searchParams = url.searchParams as {
         get<TKey extends keyof FeiShuAuthResponse>(key: TKey): FeiShuAuthResponse[TKey];
       };
       const code = searchParams.get('code');
       const state = searchParams.get('state')!;
 
-      const redirectUrl = new URL(url.searchParams.get((env.URI_PARAM_PREFIX || URI_PARAM_PREFIX) + 'original-uri')!);
+      // const redirectUrlEncoded = url.searchParams.get((env.URI_PARAM_PREFIX || URI_PARAM_PREFIX) + 'original-uri')!
+      const redirectUrlEncoded = url.pathname.substring('/callback/'.length);
+      const redirectUrl = new URL(decodeURIComponent(redirectUrlEncoded));
 
-      const nonce = await env.StateNonceKV.get(state);
+      const nonce = await env.StateNonceKV.get(truncateState(state));
       // if (!nonce) {
       //   const searchParams = new URLSearchParams({
       //     error: 'invalid_request',
@@ -141,8 +140,8 @@ export default {
       // }
 
       if (nonce) {
-        await env.StateNonceKV.delete(state); // TODO: Do we need deletion?
-        await env.CodeNonceKV.put(code, nonce, {
+        await env.StateNonceKV.delete(truncateState(state)); // TODO: Do we need deletion?
+        await env.CodeNonceKV.put(truncateCode(code), nonce, {
           expirationTtl: 300, // 5 minutes
         });
       }
@@ -187,6 +186,8 @@ export default {
       const code = formData.get('code');  // 这是从客户端收到的飞书code
       // const nonce = formData.get('nonce') as string | null | undefined; // 这个地方不对
 
+      const redirectUrl = new URL(`${env.ISSUER_BASE_URL}/callback/${encodeURIComponent(formData.get('redirect_uri')!)}`);
+
       const feiShuTokenResponse = await fetch(FeiShuEndpoints.OAuth2Token, {
         method: 'POST',
         headers: { "Content-Type": 'application/json' },
@@ -195,16 +196,19 @@ export default {
           code,
           client_id: clientId,
           client_secret: clientSecret,
-          redirect_uri: formData.get('redirect_uri'),
+          redirect_uri: encodeURIComponent(redirectUrl.toString()), // It's somehow strange here to encode it one more time.
         } satisfies FeiShuAccessTokenRequest)
       });
 
       const feiShuTokenData = await feiShuTokenResponse.json() as FeiShuAccessTokenResponse;
       if (feiShuTokenData.code !== 0) {
+        console.warn('Failed to obtain access token from FeiShu: ', feiShuTokenData);
         return new Response(JSON.stringify({
           error: 'invalid_request',
           error_description: (feiShuTokenData as FeiShuAccessTokenErrorResponse).error_description,
-        } satisfies OAuth2AccessTokenErrorResponse));
+        } satisfies OAuth2AccessTokenErrorResponse), {
+          status: feiShuTokenResponse.status,
+        });
       }
 
       const {
@@ -225,7 +229,7 @@ export default {
       });
       const userInfo = await userInfoResponse.json() as FeiShuUserInfoResponse;
 
-      const nonce = await env.CodeNonceKV.get(code);
+      const nonce = await env.CodeNonceKV.get(truncateCode(code));
 
       // 4. 生成OIDC的响应
       return new Response(JSON.stringify({
@@ -301,8 +305,20 @@ function transformOpenIDScope(openIDScope: string): string {
   return [
     ...new Set(
       openIDScope
-        .split(' ').map(scope => scopeMap.get(scope as keyof OpenIDStandardClaims) || scope)
+        .split(' ').map(scope => scopeMap.get(scope as keyof OpenIDStandardClaims) || '')
         .join(' ').split(' ')
     )
   ].join(' ')
+}
+
+function truncateState(state: string): string {
+  return state.substring(0, 256); // Use trivial truncate for now. TODO: use SHA-256 instead.
+}
+
+function truncateCode(feiShuCode: string): string {
+  return feiShuCode.substring(0, 256); // Use trivial truncate for now. TODO: use SHA-256 instead.
+}
+
+function transformEmail(userInfo: FeiShuUserInfo, env: Env): string {
+  return userInfo.enterprise_email || userInfo.email || `${userInfo.name}@${env.DOMAIN || 'example.com'}`;
 }
