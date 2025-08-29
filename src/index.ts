@@ -52,7 +52,7 @@ async function generateIdToken(userInfo: FeiShuUserInfo, clientId: string, nonce
   // 使用env中的私钥签名JWT
   return await new jose.SignJWT(payload)
     .setProtectedHeader({ alg: 'RS256', kid: env.JWT_KEY_ID })
-    .sign(await jose.importPKCS8(env.JWT_PRIVATE_KEY, 'RS256'));
+    .sign(await jose.importX509(env.JWT_PRIVATE_KEY_X509, 'RS256'));
 }
 
 export default {
@@ -79,12 +79,7 @@ export default {
     // JWKS端点 - 提供用于验证JWT签名的公钥
     if (url.pathname === '/jwks') {
       return new Response(JSON.stringify({
-        keys: [{
-          kty: 'RSA',
-          use: 'sig',
-          kid: env.JWT_KEY_ID,
-          ...JSON.parse(env.JWT_PUBLIC_KEY_JWK)
-        }]
+        keys: [JSON.parse(env.JWT_PUBLIC_KEY_JWK)],
       }), {
         headers: { 'Content-Type': 'application/json' },
       });
