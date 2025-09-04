@@ -9,7 +9,7 @@ declare namespace Cloudflare {
 interface Env extends Cloudflare.Env {
   DOMAIN?: string;
   ISSUER_BASE_URL: string;
-  JWT_PRIVATE_KEY_X509: string;
+  JWT_PRIVATE_KEY_PEM: string;
   JWT_PUBLIC_KEY_JWK: string;
   JWT_KEY_ID: string;
 }

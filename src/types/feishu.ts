@@ -1,9 +1,9 @@
-export const FeiShuEndpoints = {
-  /** GET {@link FeiShuAuthRequestParams} */
+export const FeishuEndpoints = {
+  /** GET {@link FeishuAuthRequestParams} */
   OAuth2Auth: 'https://accounts.feishu.cn/open-apis/authen/v1/authorize' as const,
-  /** POST {@link FeiShuAccessTokenRequest}: {@link FeiShuAccessTokenResponse} */
+  /** POST {@link FeishuAccessTokenRequest}: {@link FeishuAccessTokenResponse} */
   OAuth2Token: 'https://open.feishu.cn/open-apis/authen/v2/oauth/token' as const,
-  /** GET: {@link FeiShuUserInfoResponse} */
+  /** GET: {@link FeishuUserInfoResponse} */
   UserInfo: 'https://open.feishu.cn/open-apis/authen/v1/user_info' as const,
 };
 
@@ -17,7 +17,7 @@ export const FeiShuEndpoints = {
  * "https://accounts.feishu.cn/open-apis/authen/v1/authorize?client_id=cli_a5d611352af9d00b&redirect_uri=https%3A%2F%2Fexample.com%2Fapi%2Foauth%2Fcallback&scope=bitable:app:readonly%20contact:contact&state=RANDOMSTRING"
  * ```
  */
-export type FeiShuAuthRequestParams = {
+export type FeishuAuthRequestParams = {
   /**
    * 应用的 App ID，可以在开发者后台的**凭证与基础信息**页面查看 App ID。有关 App ID 的详细介绍，请参考[通用参数](https://open.feishu.cn/document/ukTMukTMukTM/uYTM5UjL2ETO14iNxkTN/terminology)。
    *
@@ -86,7 +86,7 @@ export type FeiShuAuthRequestParams = {
  * @example
  * "https://example.com/api/oauth/callback?code=2Wd5g337vo5BZXUz-3W5KECsWUmIzJ_FJ1eFD59fD1AJIibIZljTu3OLK-HP_UI1&state=RANDOMSTRING"
  */
-export type FeiShuAuthResponse = {
+export type FeishuAuthResponse = {
   /**
    * 授权码，用于获取 `user_access_token`。
    *
@@ -117,7 +117,7 @@ export type FeiShuAuthResponse = {
  * }
  * ```
  */
-export type FeiShuAccessTokenRequest = {
+export type FeishuAccessTokenRequest = {
   /**
    * 授权类型。
    *
@@ -184,7 +184,7 @@ export type FeiShuAccessTokenRequest = {
   scope?: string;
 };
 
-type FeiShuAccessTokenSuccessResponse = {
+type FeishuAccessTokenSuccessResponse = {
   /** 错误码，为 0 时表明请求成功，非 0 表示失败 */
   code: 0;
   /** 即 `user_access_token` */
@@ -196,7 +196,7 @@ type FeiShuAccessTokenSuccessResponse = {
   scope: string;
 };
 
-type FeiShuAccessTokenSuccessResponseWithRefreshToken = FeiShuAccessTokenSuccessResponse & {
+type FeishuAccessTokenSuccessResponseWithRefreshToken = FeishuAccessTokenSuccessResponse & {
   /**
    * 用于刷新 `user_access_token`，详见[刷新 `user_access_token`](https://open.feishu.cn/document/uAjLw4CM/ukTMukTMukTM/authentication-management/access-token/refresh-user-access-token)。
    * 该字段仅在请求成功且用户授予 `offline_access` 权限时返回。
@@ -206,7 +206,7 @@ type FeiShuAccessTokenSuccessResponseWithRefreshToken = FeiShuAccessTokenSuccess
   refresh_token_expires_in: number;
 };
 
-export type FeiShuAccessTokenErrorResponse = {
+export type FeishuAccessTokenErrorResponse = {
   /** 错误码，为 0 时表明请求成功，非 0 表示失败 */
   code: number;
   /** 错误类型 */
@@ -244,9 +244,9 @@ export type FeiShuAccessTokenErrorResponse = {
  * }
  * ```
  */
-export type FeiShuAccessTokenResponse = FeiShuAccessTokenSuccessResponse | FeiShuAccessTokenSuccessResponseWithRefreshToken | FeiShuAccessTokenErrorResponse;
+export type FeishuAccessTokenResponse = FeishuAccessTokenSuccessResponse | FeishuAccessTokenSuccessResponseWithRefreshToken | FeishuAccessTokenErrorResponse;
 
-export type FeiShuUserInfo = {
+export type FeishuUserInfo = {
   /** 用户姓名 */
   name: string;
   /** 用户英文名称 */
@@ -314,10 +314,10 @@ export type FeiShuUserInfo = {
  * }
  * ```
  */
-export type FeiShuUserInfoResponse = {
+export type FeishuUserInfoResponse = {
   /** 错误码，非 0 表示失败 */
   code: number;
   /** 错误描述 */
   msg: string;
-  data: FeiShuUserInfo;
+  data: FeishuUserInfo;
 };

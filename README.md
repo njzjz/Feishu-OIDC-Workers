@@ -1,7 +1,7 @@
-# FeiShu OIDC Adapter on Cloudflare Workers
+# Feishu OIDC Adapter on Cloudflare Workers
 
-This project provides an OpenID Connect (OIDC) adapter for FeiShu (Lark) on Cloudflare Workers.
-It allows you to integrate FeiShu's authentication system into your applications easily.
+This project provides an OpenID Connect (OIDC) adapter for Feishu (Lark) on Cloudflare Workers.
+It allows you to integrate Feishu's authentication system into your applications easily.
 
 > \[!IMPORTANT]
 >
@@ -11,7 +11,7 @@ It allows you to integrate FeiShu's authentication system into your applications
 
 ## Deployment
 
-To deploy the FeiShu OIDC Adapter on Cloudflare Workers, follow these steps:
+To deploy the Feishu OIDC Adapter on Cloudflare Workers, follow these steps:
 
 1.  Fork the Repository.
 
@@ -33,19 +33,19 @@ To deploy the FeiShu OIDC Adapter on Cloudflare Workers, follow these steps:
 
 6.  Set up the following environment variables in your Cloudflare Worker settings:
     - `ISSUER_BASE_URL`: The base URL where your Worker is deployed (e.g., `https://feishu-oidc.your-domain.workers.dev`).
-    - `JWT_PRIVATE_KEY`: The private key for signing JWTs (in PEM format).
-    - `JWT_PUBLIC_KEY`: The public key for verifying JWTs (in JWK format).
+    - `JWT_PRIVATE_KEY_PEM`: The private key for signing JWTs (in PEM format).
+    - `JWT_PUBLIC_KEY_JWK`: The public key for verifying JWTs (in JWK format).
     - `JWT_KEY_ID`: The unique identifier for the key (should match the Public Key JWK).
     - `DOMAIN`: Optional. Default domain for pseudo email generation.
 
     It may be better to set these variables as **secrets** so that the code updates do not remove these values.
-    You can also set these variables (except `JWT_PRIVATE_KEY`) in your `wrangler.jsonc` file.
+    You can also set these variables (except `JWT_PRIVATE_KEY_PEM`) in your `wrangler.jsonc` file.
 
 ## Usage
 
 Assume your domain is `feishu-oidc.your-domain.workers.dev`.
 
-For FeiShu Application:
+For Feishu Application:
 
 - **Redirect URI**: `https://feishu-oidc.your-domain.workers.dev/callback/<real-callback-url-encoded>`
 
@@ -60,8 +60,8 @@ For FeiShu Application:
   - `directory:employee.base.enterprise_email:read`
 
 For Client:
-- **Client ID**: The **App ID** of your FeiShu application.
-- **Client Secret**: The **App Secret** of your FeiShu application.
+- **Client ID**: The **App ID** of your Feishu application.
+- **Client Secret**: The **App Secret** of your Feishu application.
 - **Auth URL**: `https://feishu-oidc.your-domain.workers.dev/auth`.
 - **Token URL**: `https://feishu-oidc.your-domain.workers.dev/token`.
 - **Certs URL**: `https://feishu-oidc.your-domain.workers.dev/jwks`.
