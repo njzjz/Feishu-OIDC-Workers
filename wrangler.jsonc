@@ -24,11 +24,11 @@
   "kv_namespaces": [
     {
       "binding": "StateNonceKV",
-      "id": "6e9f753f2cb749b5ad8887fb26865274", // Change ID here to match your own KV instance.
+      "id": "4fea6748ac1846d682d80d85dae9186e", // Change ID here to match your own KV instance.
     },
     {
       "binding": "CodeNonceKV",
-      "id": "5cf11bde4de04a919c33ee10f11e399c", // Change ID here to match your own KV instance.
+      "id": "76d8a6712efa4f4e9ad165687ece68ca", // Change ID here to match your own KV instance.
     }
   ],
   /**
